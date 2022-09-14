@@ -1,15 +1,16 @@
 """
 @Author: Faranak Rajabi
-@Description: Hamilton Jacobi WENO SOLVER FOR ADVECTION EQUATION in 1 dimension
-    * phi_t + u*phi_x = 0
-    * Forward euler in time
+@Description: Hamilton Jacobi WENO SOLVER FOR ADVECTION EQUATION in 2 dimensions
+    * phi_t + c1*phi_x + c2*phi_y = 0
     * Periodic Boundary Condition
     * WENO scheme for finding the best stencill for ux  according to velocity
 """
+import math
 import time
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
 
 from matplotlib.animation import FuncAnimation
 
@@ -18,6 +19,7 @@ def get_dphix(v1, v2, v3, v4, v5):
     """
     params v1, v2, v3, v4, and v5: our first-order approximations
     :return: The HJ WENO approximation of phi_x computed from {v1, v2, v3, v4, v5}
+    this part can be used for the phi_y calculation
     """
 
     # Three possible choices
@@ -76,15 +78,15 @@ def dphidx_minus_calculator(delta_x, current_phi):
 
 def shift_vector_right(vector):
     new_vector = np.zeros(vector.shape)
-    new_vector[0] = vector[-1]
-    new_vector[1:] = vector[:-1]
+    new_vector[:, 0] = vector[:, -1]
+    new_vector[:, 1:] = vector[:, :-1]
     return new_vector
 
 
 def shift_vector_left(vector):
     new_vector = np.zeros(vector.shape)
-    new_vector[-1] = vector[0]
-    new_vector[:-1] = vector[1:]
+    new_vector[:, -1] = vector[:, 0]
+    new_vector[:, :-1] = vector[:, 1:]
     return new_vector
 
 
@@ -117,45 +119,78 @@ def dphidx_plus_calculator(delta_x, current_phi):
     return dphidx
 
 
-# defining a function for calculating phi_np1 when c1 > 0
-def phi_update(delta_x, phi_old, delta_t, c1):
-    if c1 <= 0:
-        # Velocity is negative, so we rely on Phi_x plus approximations
-        diff = dphidx_plus_calculator(delta_x, phi_old)
+# defining a function for calculating phi_np1 for different types of u(velocity in x direction) and v(velocity in y
+# direction)
+def phi_update(delta_x, delta_y, phi_old, delta_t, u, v):
+    if u <= 0 and v <= 0:
+        # Velocity in x and y direction is negative, so we rely on Phi_x plus and Phi_y plus approximations
+        diff_x = dphidx_plus_calculator(delta_x, phi_old)
+        diff_y = dphidx_plus_calculator(delta_y, phi_old.transpose()).transpose()
+    elif u <= 0 < v:
+        # Velocity in x direction is negative and in y direction is positive, so we rely on Phi_x plus and Phi_y
+        # minus approximations
+        diff_x = dphidx_plus_calculator(delta_x, phi_old)
+        diff_y = dphidx_minus_calculator(delta_y, phi_old.transpose()).transpose()
+    elif v <= 0 < u:
+        # Velocity in x direction is positive and in y direction is negative, so we rely on Phi_x minus and Phi_y
+        # plus approximations
+        diff_x = dphidx_minus_calculator(delta_x, phi_old)
+        diff_y = dphidx_plus_calculator(delta_y, phi_old.transpose()).transpose()
     else:
-        # Velocity is positive, so we rely on Phi_x minus approximations
-        diff = dphidx_minus_calculator(delta_x, phi_old)
+        # Velocity in x and y direction is positive, so we rely on Phi_x minus and Phi_y minus approximations
+        diff_x = dphidx_minus_calculator(delta_x, phi_old)
+        diff_y = dphidx_minus_calculator(delta_y, phi_old.transpose()).transpose()
 
-    phi_new = phi_old + delta_t * diff * (-c1)
+    phi_new = phi_old + delta_t * (diff_x * (-c1) + diff_y * (-c2))
     return phi_new
 
 
 ### For plotting
 def init():
-    ax.clear()
-    ax.set_xticks(np.linspace(0, Nx, 4), ["%.2f" % value for value in np.linspace(min_x, max_x, 4)])
-    ax.set_xlim(0, Nx)
-    ax.set_ylim(0, 1.2)
-    return ax,  # Must return an iterable of artists.
+    fig.clear()
+    ax_contour = fig.add_subplot(121)
+    ax_phi = fig.add_subplot(122, projection='3d')
+    ax_contour.set_aspect('equal', adjustable='box')
+    for ax in [ax_phi, ax_contour]:
+        ax.clear()
+        ax.set_xticks(np.linspace(min_x, max_x, 4), ["%.2f" % value for value in np.linspace(min_x, max_x, 4)])
+        ax.set_xlim(min_x, max_x)
+        ax.set_ylim(min_y, max_y)
+        ax.set_yticks(np.linspace(min_y, max_y, 4), ["%.2f" % value for value in np.linspace(min_y, max_y, 4)])
+    ax_phi.set_zlim(-1, 0.2)
+    # return ax,  # Must return an iterable of artists.
+    ax_contour.set_aspect('equal', adjustable='box')
+
+    return ax_phi, ax_contour
 
 
 def update(frame):
     data, time = frame
 
-    init()
+    ax_phi, ax_contour = init()
+    fig.suptitle('Time=%.2fs' % time)
 
-    ax.plot(range(0, Nx), phi_list[0], color='crimson', label='T=0s')
-    ax.plot(range(0, Nx), data, color='steelblue', label='T=%.2fs' % time)
-    ax.legend()
+    ax_phi.plot_surface(meshgrid_x, meshgrid_y, data, cmap=cm.coolwarm, linewidth=0.0)
+    ax_phi.set_title('Solution for Advection Equation')
+
+    ax_contour.contour(meshgrid_x, meshgrid_y, data, [0], colors=['crimson'])
+    ax_contour.set_title('Zero Level-Set')
+
+    # fig.colorbar(surf, shrink=0.5, aspect=5)
+    # ax.legend()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser('HJ WENO SOLVER for 1 dimension')
+    parser = argparse.ArgumentParser('HJ WENO SOLVER for 2 dimensions')
 
-    parser.add_argument('--c1', default=1, type=float, help='velocity in x direction')
+    parser.add_argument('--c1', default=1 / math.sqrt(2), type=float, help='velocity in x direction')
+    parser.add_argument('--c2', default=1 / math.sqrt(2), type=float, help='velocity in y direction')
     parser.add_argument('--min-x', default=-1, type=float)
     parser.add_argument('--max-x', default=1, type=float)
-    parser.add_argument('--grid-points-num', default=200, type=int, help='number of grid points on the x axis')
+    parser.add_argument('--min-y', default=-1, type=float)
+    parser.add_argument('--max-y', default=1, type=float)
+    parser.add_argument('--x-grid-points-num', default=100, type=int, help='number of grid points on the x axis')
+    parser.add_argument('--y-grid-points-num', default=100, type=int, help='number of grid points on the x axis')
     parser.add_argument('--CFL', default=0.9, type=float)
     parser.add_argument('--final-time', default=3., type=float)
     parser.add_argument('--output-file', default='animation.gif')
@@ -165,45 +200,54 @@ if __name__ == "__main__":
     c1 = params.c1
     min_x = params.min_x
     max_x = params.max_x
-    D_size = max_x - min_x  # size of the spatial domain
-    Nx = params.grid_points_num
-    dx = D_size / Nx
+    D_size_x = max_x - min_x  # size of the spatial domain
+    Nx = params.x_grid_points_num
+    dx = D_size_x / Nx
+    x_value = np.linspace(min_x, max_x, Nx)
+
+    c2 = params.c2
+    min_y = params.min_y
+    max_y = params.max_y
+    D_size_y = max_y - min_y  # size of the spatial domain
+    Ny = params.y_grid_points_num
+    dy = D_size_y / Ny
+    y_value = np.linspace(min_y, max_y, Ny)
 
     tf = params.final_time  # final time
-    dt = dx * params.CFL / abs(c1)
+    dt = params.CFL / (abs(c1) / dx + abs(c2) / dy)
     final_time_step = int(tf / dt)
 
     tic = time.time()
     # Defining the initial function phi0 as a square wave function
-    phi0 = []
-    num_xup = int((1 / 3 - min_x) / dx)
-    num_xlow = int((-1 / 3 - min_x) / dx)
+    phi0 = np.zeros((Nx, Ny))
+    xc = 0
+    yc = 0
+    r = 0.3
     for i in range(Nx):
-        if num_xlow <= i <= num_xup:
-            phi0.append(1)
-        else:
-            phi0.append(0)
-    phi0 = np.array(phi0)
+        for j in range(Ny):
+            phi0[j, i] = math.sqrt((x_value[i] - xc) ** 2 + (y_value[j] - yc) ** 2) - r
 
     # Let's store the phi values for each time step, first we store the initial phi
     phi_list = [phi0]
 
     for n in range(0, final_time_step):
         # calculating the phi_n plus one by the phi_update function
-        phi_np1 = phi_update(dx, phi_list[-1], dt, c1)
-        phi_np2 = phi_update(dx, phi_np1, dt, c1)
+        phi_np1 = phi_update(dx, dy, phi_list[-1], dt, c1, c2)
+        phi_np2 = phi_update(dx, dy, phi_np1, dt, c1, c2)
         phi_np1half = .75 * phi_list[-1] + .25 * phi_np2
-        phi_np3half = phi_update(dx, phi_np1half, dt, c1)
+        phi_np3half = phi_update(dx, dy, phi_np1half, dt, c1, c2)
         phi_np1 = 1. / 3 * phi_list[-1] + 2. / 3 * phi_np3half
 
         phi_list.append(phi_np1)
 
+    meshgrid_x, meshgrid_y = np.meshgrid(x_value, y_value)
+
     # Here, we create what matplotlib calls an "artist"--in our case the axes ax.
-    fig, ax = plt.subplots()
+    fig = plt.figure()
 
     frames = []
     for idx in range(len(phi_list)):
-        frames.append([phi_list[idx], idx * dt])
+        frames.append([-phi_list[idx], idx * dt])
 
     ani = FuncAnimation(fig, update, frames=frames, init_func=init, blit=False, repeat=False)
     toc = time.time()

@@ -124,11 +124,11 @@ def compute_diff_table(phi_old, order=3):
     diff_table[:, 0] = phi_old
 
     for dim in range(1, order + 1):
-        diff_table[:, dim] = (diff_table[:, dim - 1] - shift_vector_right(diff_table[:, 0])) / (dim * dx)
+        diff_table[:, dim] = (diff_table[:, dim - 1] - shift_vector_right(diff_table[:, dim - 1])) / (dim * dx)
     # For order 3:
     # diff_table[i, 1] = D^1_{i-1/2}
     # diff_table[i, 2] = D^2_{i-1}
-    # diff_table[i, 3] = D^3_{i-1/2}
+    # diff_table[i, 3] = D^3_{i-3/2}
 
     return diff_table
 
@@ -141,25 +141,30 @@ def phi_update(delta_x, phi_old, dt, c1):
     phi_x_poly = np.zeros((np.shape(phi_old)))
     for i in range(phi_old.shape[0]):
         if c1 > 0:
-            phi_x_poly[i] = q1_prime[i]
             k = i - 1
         else:
-            phi_x_poly[i] = q1_prime[i + 1]
             k = i
-            if abs(q2_prime[i]) <= abs(q2_prime[i + 1]):
-                phi_x_poly[i] += q2_prime[i] * 2 * ((i - k) - 1) * delta_x  # q_prime2 = c * 2 * ((i - k) - 1) * dx
-                # and c = D^2_(i - 1)
-                k_star = k - 1
-            else:
-                phi_x_poly[i] += q2_prime[i + 1] * 2 * ((i - k) - 1) * delta_x  # q_prime2 = c * 2 * ((i - k) - 1) *
-                # dx, in this case c = D^2_(i)
-                k_star = k
-                if abs(q3_prime[i]) <= abs(q3_prime[i + 1]):
-                    phi_x_poly[i] += q3_prime[i] * (3 * (i - k_star) ** 2 - 6 * (i - k_star) + 2) * delta_x ** 2  # c* * (3(i - k*)2 - 6(i -
-                    # k*) + 2) * (dx)^2, in this case k* = k - 1 = i - 2, and c = D^3_(i - 3/2)
-                else:
-                    phi_x_poly[i] += q3_prime[i + 1] * (3 * (i - k_star) ** 2 - 6 * (i - k_star) + 2) * delta_x ** 2  # c* * (3(i - k*)2 - 6(i
-                    # - k*) + 2) * (dx)^2, in this case k* = k - 1 = i - 1, and c = D^3_(i - 1/2)
+
+        phi_x_poly[i] = q1_prime[(k+1) % phi_old.shape[0]]
+
+        d2_k = q2_prime[(k + 1) % phi_old.shape[0]]
+        d2_kplus1 = q2_prime[(k + 2) % phi_old.shape[0]]
+        if abs(d2_k) <= abs(d2_kplus1):
+            phi_x_poly[i] += d2_k * (2 * (i - k) - 1) * delta_x  # q_prime2 = c * 2 * ((i - k) - 1) * dx
+            # and c = D^2_(i - 1)
+            k_star = k - 1
+        else:
+            phi_x_poly[i] += d2_kplus1 * (2 * (i - k) - 1) * delta_x  # q_prime2 = c * 2 * ((i - k) - 1) *
+            # dx, in this case c = D^2_(i)
+            k_star = k
+
+        if abs(q3_prime[(k_star+2) % phi_old.shape[0]]) <= abs(q3_prime[(k_star + 3) % phi_old.shape[0]]):
+            phi_x_poly[i] += q3_prime[(k_star+2) % phi_old.shape[0]] * (3 * (i - k_star) ** 2 - 6 * (i - k_star) + 2) * (delta_x ** 2)  # c* * (3(i - k*)2 - 6(i -
+            # k*) + 2) * (dx)^2, in this case k* = k - 1 = i - 2, and c = D^3_(i - 3/2)
+        else:
+            phi_x_poly[i] += q3_prime[(k_star + 3) % phi_old.shape[0]] * (3 * (i - k_star) ** 2 - 6 * (i - k_star) + 2) * (delta_x ** 2)  # c* * (3(i - k*)2 - 6(i
+            # - k*) + 2) * (dx)^2, in this case k* = k - 1 = i - 1, and c = D^3_(i - 1/2)
+
     phi_new = dt * phi_x_poly * (-c1) + phi_old
     return phi_new
 
@@ -251,6 +256,6 @@ if __name__ == "__main__":
 
     ani = FuncAnimation(fig, update, frames=frames, init_func=init, blit=False, repeat=False)
     toc = time.time()
-    print(tic - toc)
-    ani.save(params.output_file, writer='imagemagick', fps=60)
+    print(toc - tic)
+    # ani.save(params.output_file, writer='imagemagick', fps=60)
     plt.show()
